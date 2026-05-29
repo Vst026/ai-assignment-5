@@ -1,1 +1,8 @@
-# ai-assignment-5
+# ai-assignment-5[travel_planner.py](https://github.com/user-attachments/files/28376825/travel_planner.py)
+[knowledge_graphs.py](https://github.com/user-attachments/files/28376826/knowledge_graphs.py)[test_cases.py](https://github.com/user-attachments/files/28376839/test_cases.py)
+[heuristic_alpha_beta.py](https://github.com/user-attachments/files/28376838/heuristic_alpha_beta.py)
+[alpha_beta.py](https://github.com/user-attachments/files/28376833/alpha_beta.py)
+[minimax.py](https://github.com/user-attachments/files/28376832/minimax.py)
+[bayesian_networks_description.txt](https://github.com/user-attachments/files/28376831/bayesian_networks_description.txt)
+[bayesian_network.py](https://github.com/user-attachments/files/28376830/bayesian_network.py)
+[knowledge_graphs_description.txt](https://github.com/user-attachments/files/28376827/knowledge_graphs_description.txt)
