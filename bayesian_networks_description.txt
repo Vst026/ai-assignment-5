@@ -1,0 +1,297 @@
+================================================================================
+  TASK 3 — KNOWLEDGE GRAPHS: DESCRIPTION AND TOOLS
+================================================================================
+
+
+1. WHAT IS A KNOWLEDGE GRAPH?
+-------------------------------
+
+A Knowledge Graph (KG) is a structured, graph-based representation of
+real-world entities and the semantic relationships between them. It models
+knowledge as a network where:
+
+  • Nodes  (vertices)  — represent entities, concepts, or literal values
+  • Edges  (arcs)      — represent typed, directed relationships between nodes
+  • Labels / Types     — classify nodes and edges into categories
+  • Properties         — key-value attributes stored on nodes or edges
+
+Unlike a relational database, a KG treats relationships as first-class
+citizens. Adding a new relationship type requires no schema migration —
+you simply add a new edge type. This open-world assumption makes KGs
+highly flexible for representing heterogeneous, evolving knowledge.
+
+The term "knowledge graph" was popularised by Google in 2012 when it
+announced the Google Knowledge Graph to improve search results with
+structured semantic information. Today KGs underpin major products at
+Google, Microsoft (Bing / Azure), Amazon, Facebook, Wikidata, LinkedIn,
+and many others.
+
+
+2. CORE DATA MODEL: RDF TRIPLES
+---------------------------------
+
+The most widely used KG data model is the Resource Description Framework
+(RDF), a W3C standard. Every fact is stored as a subject–predicate–object
+triple:
+
+    (Subject   —   Predicate   —   Object)
+    (Entity    —   Relation    —   Entity or Literal)
+
+Examples:
+    (Paris,            isCapitalOf,    France)
+    (France,           hasLanguage,    French)
+    (BurgundyPinotNoir, producedIn,    Burgundy)
+    (BurgundyPinotNoir, pairsWith,     FrenchCuisine)
+
+Each resource is identified by a URI (Uniform Resource Identifier), making
+KG facts globally unambiguous and linkable across data sources. Collections
+of interlinked RDF data published on the Web are called Linked Data.
+
+RDF supports multiple serialisation formats:
+  • Turtle (.ttl)          — compact, human-readable
+  • JSON-LD               — JSON-compatible, ideal for web APIs
+  • RDF/XML               — the original W3C format
+  • N-Triples / N-Quads   — line-oriented, easy to stream
+
+
+3. ONTOLOGIES AND SCHEMAS
+---------------------------
+
+An ontology defines the vocabulary and constraints of a KG:
+
+  • Classes  — categories of entities (e.g., Wine, City, Cuisine)
+  • Properties — allowed relationships and attributes
+  • Axioms   — logical rules and constraints (e.g., "every Wine has exactly
+               one region")
+
+Common ontology languages:
+
+  OWL (Web Ontology Language)
+    The most expressive standard. Supports description-logic reasoning,
+    allowing a reasoner to infer new facts. OWL has three sub-languages:
+    OWL Lite, OWL DL, and OWL Full, trading expressiveness for decidability.
+
+  RDFS (RDF Schema)
+    A lightweight vocabulary for defining class hierarchies (rdfs:subClassOf)
+    and property domains/ranges. Simpler than OWL but with limited reasoning.
+
+  SKOS (Simple Knowledge Organisation System)
+    Designed for controlled vocabularies, taxonomies, and thesauri.
+    Uses concepts, broader/narrower relationships, and preferred labels.
+
+Well-known published ontologies:
+  • schema.org  — web-oriented vocabulary used in structured data markup
+  • FOAF        — Friend of a Friend; social network relationships
+  • Dublin Core — metadata for documents and digital resources
+  • Gene Ontology (GO) — biological processes and gene functions
+
+
+4. SPARQL — THE QUERY LANGUAGE
+--------------------------------
+
+SPARQL (SPARQL Protocol and RDF Query Language) is the W3C standard query
+language for RDF knowledge graphs, analogous to SQL for relational databases.
+
+A SPARQL SELECT query has the form:
+
+    PREFIX ex: <http://example.org/>
+
+    SELECT ?wine ?region
+    WHERE {
+        ?wine  rdf:type      ex:Wine .
+        ?wine  ex:producedIn ?region .
+        ?region ex:locatedIn ex:France .
+        ?wine  ex:pairsWith  ex:Seafood .
+    }
+
+SPARQL also supports:
+  • CONSTRUCT  — build a new RDF graph from query results
+  • ASK        — return true/false for a pattern
+  • DESCRIBE   — return all triples about a resource
+  • OPTIONAL, FILTER, UNION, MINUS — relational-style operators
+  • Aggregate functions: COUNT, SUM, AVG, GROUP BY
+
+
+5. PROPERTY GRAPHS vs. RDF GRAPHS
+------------------------------------
+
+Property Graphs (PG) are an alternative model popularised by Neo4j:
+
+  RDF Graph:
+    • Nodes and edges identified by URIs
+    • Edge labels are URIs; no properties on edges directly
+    • Properties on nodes stored as extra triples
+    • Queried with SPARQL
+
+  Property Graph:
+    • Nodes and edges can each carry arbitrary key-value properties
+    • Multiple labels per node
+    • Properties on edges are native (no extra nodes needed)
+    • Queried with Cypher (Neo4j) or Gremlin (Apache TinkerPop)
+
+Example in Property Graph style:
+    (City:Paris {population:2161000})
+        -[:IS_CAPITAL_OF {since:987, recognised_by:"EU"}]->
+    (Country:France {gdp_usd_bn:2780})
+
+The choice between RDF and Property Graph depends on the use case:
+  • RDF / SPARQL is preferred for Linked Data, interoperability, and reasoning
+  • Property Graphs are preferred for transactional workloads, social networks,
+    and scenarios where edge properties are important
+
+A newer standard, RDF-star (RDF*), extends RDF to allow properties on edges,
+bridging the gap between the two models.
+
+
+6. KNOWLEDGE GRAPHS vs. RELATIONAL DATABASES
+----------------------------------------------
+
+Feature                  RDBMS                    Knowledge Graph
+-----------------------  -----------------------  ------------------------
+Schema                   Fixed (DDL required)     Flexible (open-world)
+Relationships            Foreign keys             First-class typed edges
+Heterogeneous data       Difficult (EAV hacks)    Natural
+Multi-hop queries        Expensive JOINs          Efficient graph traversal
+Reasoning / inference    Not built-in             Yes (OWL reasoners)
+Query language           SQL                      SPARQL / Cypher / Gremlin
+Scalability              Vertical (mostly)        Horizontal graph DBs
+Semantic interoperability Proprietary             URI-based, global
+Schema evolution         Costly migration         Add triples freely
+
+
+7. KNOWLEDGE GRAPH TOOLS — COMPARISON
+----------------------------------------
+
+7.1  Neo4j
+  Type        : Native Property Graph database
+  Model       : Labelled Property Graph (LPG)
+  Query lang  : Cypher
+  Strengths   : Excellent performance for multi-hop traversals, intuitive
+                Cypher syntax, large ecosystem, ACID transactions, full-text
+                search, graph data science library (GDS) with ML algorithms.
+  Weaknesses  : Commercial licensing for enterprise features; not RDF-native
+                (requires plug-in for RDF import); limited OWL reasoning.
+  Best for    : Social networks, fraud detection, recommendation engines,
+                knowledge management requiring rich graph analytics.
+  Licence     : Community Edition (open source); Enterprise (commercial)
+
+7.2  Apache Jena
+  Type        : Java RDF framework + SPARQL engine + OWL reasoner
+  Model       : RDF Triples
+  Query lang  : SPARQL 1.1
+  Strengths   : Full SPARQL 1.1 support; built-in OWL/RDFS reasoning via
+                Pellet or built-in rule engine; TDB2 persistent triple store;
+                Fuseki SPARQL server; mature, widely used in academia.
+  Weaknesses  : Java-only; slower than native graph databases for large-scale
+                transactional workloads; steeper learning curve.
+  Best for    : Semantic web research, ontology-driven applications, Linked
+                Data publishing.
+  Licence     : Apache 2.0 (open source)
+
+7.3  Protégé
+  Type        : Ontology editor (not a database)
+  Model       : OWL ontologies
+  Query lang  : SPARQL / Manchester OWL Syntax / DL queries
+  Strengths   : Industry-standard graphical ontology editor; plug-in ecosystem
+                (OWLViz, HermiT reasoner, SPARQL query tab); widely used in
+                biomedical informatics (Gene Ontology, SNOMED CT).
+  Weaknesses  : Primarily a design and editing tool, not a production query
+                engine; can be slow with very large ontologies.
+  Best for    : Building and validating ontologies before loading into a
+                triple store; knowledge engineering workflows.
+  Licence     : BSD 2-Clause (open source)
+
+7.4  Amazon Neptune
+  Type        : Fully managed cloud graph database (AWS)
+  Model       : Both RDF and Property Graph
+  Query lang  : SPARQL (RDF mode) and Gremlin / openCypher (PG mode)
+  Strengths   : Serverless option; managed infrastructure (backups, failover,
+                scaling); tight AWS integration (IAM, VPC, Lambda); supports
+                both graph models in one service; millisecond latency at scale.
+  Weaknesses  : Vendor lock-in to AWS; costs can be high at large scale;
+                limited full-text search compared to dedicated search engines.
+  Best for    : Cloud-native applications on AWS requiring a graph database
+                without operational overhead.
+  Licence     : Commercial (AWS managed service)
+
+7.5  Stardog
+  Type        : Enterprise Knowledge Graph platform
+  Model       : RDF + virtual graph integration
+  Query lang  : SPARQL 1.1, SPARQL with path expressions
+  Strengths   : Best-in-class OWL reasoning (supports OWL 2 RL/EL/QL);
+                Virtual Graphs connect external data sources (RDBMS, CSV)
+                without ETL; graph integrity constraints; ML integration;
+                role-based access control.
+  Weaknesses  : Commercial product (can be expensive); requires JVM;
+                steeper setup than Neo4j.
+  Best for    : Enterprise KG platforms requiring data federation, ontology
+                reasoning, and compliance/governance.
+  Licence     : Commercial (free tier available)
+
+7.6  Wikidata
+  Type        : Collaborative, open knowledge base
+  Model       : Entity-Statement-Reference (custom RDF-compatible model)
+  Query lang  : SPARQL (via Wikidata Query Service — WDQS)
+  Strengths   : 100M+ items covering virtually every domain; free public
+                SPARQL endpoint; multilingual labels; continuously updated
+                by community; linked to Wikipedia, DBpedia, Freebase.
+  Weaknesses  : General-purpose — lacks depth in specialised domains;
+                data quality varies; SPARQL endpoint has rate limits.
+  Best for    : Enriching domain-specific KGs with general world knowledge;
+                entity disambiguation; linked data research.
+  Licence     : CC0 (public domain)
+
+7.7  Google Knowledge Graph API
+  Type        : REST API to Google's proprietary KG
+  Model       : Entities with schema.org types
+  Query lang  : REST (entity search, not SPARQL)
+  Strengths   : Extremely high coverage of popular entities (people, places,
+                organisations, movies, products); powers Google Search, Maps,
+                and Assistant; returns confidence scores and structured facts.
+  Weaknesses  : Read-only public API; no way to add or correct data; limited
+                to entity lookup (not arbitrary graph queries); rate-limited.
+  Best for    : Entity recognition, search auto-complete, enriching product
+                catalogues with well-known entity data.
+  Licence     : Commercial (free tier with API key)
+
+
+8. TOOL SELECTION GUIDE
+-------------------------
+
+  Need                                    Recommended Tool
+  --------------------------------------  ----------------------
+  Build ontology from scratch             Protégé
+  Linked Data / Semantic Web research     Apache Jena
+  Social/recommendation graph, OLTP       Neo4j
+  Cloud-managed, AWS ecosystem            Amazon Neptune
+  Enterprise data federation + OWL        Stardog
+  Enrich KG with general world facts      Wikidata
+  Entity lookup for web/search apps       Google Knowledge Graph API
+
+
+9. THIS IMPLEMENTATION
+------------------------
+
+The accompanying file knowledge_graphs.py implements:
+
+  a) A written overview of KG concepts (printed to stdout)
+  b) An in-memory Property Graph engine with:
+       - Node and Edge objects with labels and properties
+       - Adjacency-list storage for efficient traversal
+       - Methods: add_node, add_edge, find_nodes, traverse, shortest_path
+       - SPARQL-like query interface using Python lambda predicates
+       - JSON export
+  c) A Travel Domain Knowledge Graph containing:
+       - 7 countries, 10 cities, 5 cuisines, 8 wines, 10 activities (40 nodes)
+       - 55 edges: locatedIn, hasCuisine, producedIn, pairsWith, offers
+  d) 6 sample queries:
+       Q1: Wines produced in France
+       Q2: European cities with beach activities
+       Q3: Cities offering wine tasting
+       Q4: Wines pairing with French cuisine
+       Q5: All cities in Asia
+       Q6: Premium destinations with cultural activities
+  e) Comparison table of the 7 tools described above
+  f) JSON export: travel_kg_export.json
+
+================================================================================

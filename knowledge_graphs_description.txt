@@ -1,0 +1,633 @@
+"""
+Task 3 — Knowledge Graphs: Description and Tools
+==================================================
+This file:
+  1. Defines the core concepts and structure of Knowledge Graphs
+  2. Implements a simple in-memory Property Graph engine
+  3. Demonstrates KG construction in the travel domain
+  4. Implements a basic SPARQL-like query interface
+  5. Compares major KG tools/platforms
+
+Run:  python knowledge_graphs.py
+"""
+
+from __future__ import annotations
+from typing import Dict, List, Optional, Any, Tuple
+from collections import defaultdict
+import json
+
+
+# ===========================================================================
+# SECTION 1 — What is a Knowledge Graph?
+# ===========================================================================
+KNOWLEDGE_GRAPH_OVERVIEW = """
+KNOWLEDGE GRAPHS — OVERVIEW
+============================
+
+Definition
+----------
+A Knowledge Graph (KG) is a structured representation of real-world entities
+and the semantic relationships between them. It models knowledge as a graph
+where:
+  - Nodes  (vertices) represent entities or concepts
+  - Edges  (arcs)     represent typed, directed relationships between entities
+  - Attributes        store properties/facts about entities and relationships
+
+Core Data Model: RDF Triples
+-----------------------------
+The most common KG data model is the Resource Description Framework (RDF).
+Every fact is stored as a triple:
+    (Subject  —  Predicate  —  Object)
+    (Entity   —  Relation   —  Entity or Literal)
+
+Example:
+    (Paris,      isCapitalOf,   France)
+    (France,     hasLanguage,   French)
+    (Paris,      hasCuisine,    FrenchCuisine)
+    (ChampagneBrut, pairsWith,  Oysters)
+
+Ontologies
+----------
+An ontology defines the schema — the vocabulary of allowed types, properties,
+and relationships. Common ontology languages:
+  - OWL   (Web Ontology Language) — expressive, supports reasoning
+  - RDFS  (RDF Schema)           — lightweight class/property hierarchy
+  - SKOS  (Simple KOS)           — concept schemes, thesauri
+
+SPARQL
+------
+SPARQL is the query language for RDF knowledge graphs (like SQL for RDBMS).
+Example query: "Find all French wines that pair with seafood":
+    SELECT ?wine WHERE {
+        ?wine  rdf:type   :Wine .
+        ?wine  :region    :France .
+        ?wine  :pairsWith :Seafood .
+    }
+
+Property Graph vs RDF
+---------------------
+Property Graphs (e.g. Neo4j) allow properties directly on edges, making
+them more expressive for many use cases:
+    (City:Paris) -[:IS_CAPITAL_OF {since: 987}]-> (Country:France)
+
+KGs vs Relational Databases
+----------------------------
+| Feature           | RDBMS              | Knowledge Graph        |
+|-------------------|--------------------|------------------------|
+| Schema            | Fixed (DDL)        | Flexible (open-world)  |
+| Relationships     | Foreign keys       | First-class edges      |
+| Reasoning         | No                 | Yes (via OWL/rules)    |
+| Heterogeneous data| Hard               | Natural                |
+| Query language    | SQL                | SPARQL / Cypher        |
+| Scalability       | Vertical           | Horizontal             |
+"""
+
+
+# ===========================================================================
+# SECTION 2 — Property Graph Engine (In-Memory)
+# ===========================================================================
+class KGNode:
+    """A node in the knowledge graph representing an entity."""
+
+    def __init__(self, node_id: str, label: str, properties: Dict[str, Any] = None):
+        self.id         = node_id
+        self.label      = label                    # entity type: Wine, Place, Cuisine, etc.
+        self.properties = properties or {}
+
+    def __repr__(self):
+        return f"Node({self.id}, label={self.label}, props={self.properties})"
+
+
+class KGEdge:
+    """A directed, typed edge (relationship) between two nodes."""
+
+    def __init__(self, from_id: str, relation: str, to_id: str,
+                 properties: Dict[str, Any] = None):
+        self.from_id    = from_id
+        self.relation   = relation
+        self.to_id      = to_id
+        self.properties = properties or {}
+
+    def __repr__(self):
+        return f"Edge({self.from_id} --[{self.relation}]--> {self.to_id})"
+
+
+class KnowledgeGraph:
+    """
+    In-memory Property Graph with basic inference and query capabilities.
+
+    Supports:
+      - Adding nodes and edges
+      - Pattern matching (basic SPARQL-like queries)
+      - Graph traversal (BFS/DFS)
+      - Simple forward-chaining inference
+    """
+
+    def __init__(self, name: str = "KG"):
+        self.name  = name
+        self.nodes: Dict[str, KGNode] = {}
+        self.edges: List[KGEdge]       = []
+        self._out_edges: Dict[str, List[KGEdge]] = defaultdict(list)
+        self._in_edges:  Dict[str, List[KGEdge]] = defaultdict(list)
+
+    # ------------------------------------------------------------------ #
+    # Data ingestion
+    # ------------------------------------------------------------------ #
+    def add_node(self, node_id: str, label: str, **properties) -> KGNode:
+        node = KGNode(node_id, label, properties)
+        self.nodes[node_id] = node
+        return node
+
+    def add_edge(self, from_id: str, relation: str, to_id: str, **properties) -> KGEdge:
+        if from_id not in self.nodes or to_id not in self.nodes:
+            raise ValueError(f"Both nodes must exist: {from_id}, {to_id}")
+        edge = KGEdge(from_id, relation, to_id, properties)
+        self.edges.append(edge)
+        self._out_edges[from_id].append(edge)
+        self._in_edges[to_id].append(edge)
+        return edge
+
+    # ------------------------------------------------------------------ #
+    # Basic queries
+    # ------------------------------------------------------------------ #
+    def get_node(self, node_id: str) -> Optional[KGNode]:
+        return self.nodes.get(node_id)
+
+    def get_neighbours(self, node_id: str, relation: str = None) -> List[KGNode]:
+        """Return nodes reachable from node_id via outgoing edges."""
+        edges = self._out_edges.get(node_id, [])
+        if relation:
+            edges = [e for e in edges if e.relation == relation]
+        return [self.nodes[e.to_id] for e in edges if e.to_id in self.nodes]
+
+    def find_nodes(self, label: str = None, **prop_filters) -> List[KGNode]:
+        """Find nodes matching a label and/or property values."""
+        results = list(self.nodes.values())
+        if label:
+            results = [n for n in results if n.label == label]
+        for key, value in prop_filters.items():
+            results = [n for n in results if n.properties.get(key) == value]
+        return results
+
+    def find_edges(self, from_id: str = None, relation: str = None,
+                   to_id: str = None) -> List[KGEdge]:
+        """Find edges matching optional from/relation/to filters."""
+        result = self.edges
+        if from_id:
+            result = [e for e in result if e.from_id == from_id]
+        if relation:
+            result = [e for e in result if e.relation == relation]
+        if to_id:
+            result = [e for e in result if e.to_id == to_id]
+        return result
+
+    # ------------------------------------------------------------------ #
+    # SPARQL-like pattern matching
+    # ------------------------------------------------------------------ #
+    def sparql_like(self, subject=None, predicate=None, obj=None) -> List[Tuple]:
+        """
+        Basic triple pattern matching.
+        Use None as a wildcard (like '?' in SPARQL).
+
+        Returns list of (subject_node, edge, object_node) tuples.
+        """
+        results = []
+        for edge in self.edges:
+            s_node = self.nodes.get(edge.from_id)
+            o_node = self.nodes.get(edge.to_id)
+
+            # Match subject
+            if subject is not None:
+                if isinstance(subject, str):
+                    if edge.from_id != subject:
+                        continue
+                else:   # label filter dict
+                    if s_node and s_node.label != subject.get("label"):
+                        continue
+
+            # Match predicate
+            if predicate is not None and edge.relation != predicate:
+                continue
+
+            # Match object
+            if obj is not None:
+                if isinstance(obj, str):
+                    if edge.to_id != obj:
+                        continue
+                else:
+                    if o_node and o_node.label != obj.get("label"):
+                        continue
+
+            results.append((s_node, edge, o_node))
+        return results
+
+    # ------------------------------------------------------------------ #
+    # Graph traversal
+    # ------------------------------------------------------------------ #
+    def bfs(self, start_id: str, relation: str = None, max_depth: int = 5) -> List[Tuple[int, KGNode]]:
+        """Breadth-first traversal. Returns (depth, node) pairs."""
+        visited = {start_id}
+        queue   = [(0, start_id)]
+        result  = []
+        while queue:
+            depth, nid = queue.pop(0)
+            result.append((depth, self.nodes[nid]))
+            if depth < max_depth:
+                for nb in self.get_neighbours(nid, relation):
+                    if nb.id not in visited:
+                        visited.add(nb.id)
+                        queue.append((depth + 1, nb.id))
+        return result
+
+    def path_exists(self, from_id: str, to_id: str, max_depth: int = 6) -> bool:
+        """Check if a path exists between two nodes."""
+        visited = set()
+        stack   = [from_id]
+        while stack:
+            current = stack.pop()
+            if current == to_id:
+                return True
+            if current in visited:
+                continue
+            visited.add(current)
+            for nb in self.get_neighbours(current):
+                stack.append(nb.id)
+        return False
+
+    # ------------------------------------------------------------------ #
+    # Inference: Transitivity
+    # ------------------------------------------------------------------ #
+    def infer_transitive(self, relation: str):
+        """
+        Apply transitivity rule:
+            if A -[R]-> B and B -[R]-> C then infer A -[R]-> C
+        """
+        new_edges = []
+        for a in self.nodes:
+            for b_node in self.get_neighbours(a, relation):
+                for c_node in self.get_neighbours(b_node.id, relation):
+                    # Check if edge already exists
+                    existing = self.find_edges(a, relation, c_node.id)
+                    if not existing and c_node.id != a:
+                        new_edges.append((a, relation, c_node.id))
+        for f, r, t in new_edges:
+            self.add_edge(f, r, t, inferred=True)
+        return len(new_edges)
+
+    # ------------------------------------------------------------------ #
+    # Statistics
+    # ------------------------------------------------------------------ #
+    def stats(self) -> dict:
+        labels      = defaultdict(int)
+        relations   = defaultdict(int)
+        for n in self.nodes.values():
+            labels[n.label] += 1
+        for e in self.edges:
+            relations[e.relation] += 1
+        return {
+            "nodes":      len(self.nodes),
+            "edges":      len(self.edges),
+            "labels":     dict(labels),
+            "relations":  dict(relations),
+        }
+
+    def print_stats(self):
+        s = self.stats()
+        print(f"\n  KG '{self.name}' Statistics")
+        print(f"  Nodes   : {s['nodes']}")
+        print(f"  Edges   : {s['edges']}")
+        print(f"  Labels  : {s['labels']}")
+        print(f"  Relations: {s['relations']}")
+
+
+# ===========================================================================
+# SECTION 3 — Build the Travel Domain Knowledge Graph
+# ===========================================================================
+def build_travel_kg() -> KnowledgeGraph:
+    """
+    Construct a knowledge graph in the travel domain with nodes for
+    countries, cities, cuisines, wines, and activities.
+    """
+    kg = KnowledgeGraph("Travel Domain KG")
+
+    # --- Countries ---
+    for cid, name, continent in [
+        ("france",    "France",       "Europe"),
+        ("italy",     "Italy",        "Europe"),
+        ("japan",     "Japan",        "Asia"),
+        ("indonesia", "Indonesia",    "Asia"),
+        ("argentina", "Argentina",    "South America"),
+        ("greece",    "Greece",       "Europe"),
+        ("nz",        "New Zealand",  "Oceania"),
+    ]:
+        kg.add_node(cid, "Country", name=name, continent=continent)
+
+    # --- Cities / Destinations ---
+    for city_id, name, country, dest_type in [
+        ("paris",        "Paris",             "france",    "city"),
+        ("kyoto",        "Kyoto",             "japan",     "cultural"),
+        ("rome",         "Rome",              "italy",     "city"),
+        ("bali",         "Bali",              "indonesia", "beach"),
+        ("santorini",    "Santorini",         "greece",    "beach"),
+        ("mendoza",      "Mendoza",           "argentina", "wine region"),
+        ("queenstown",   "Queenstown",        "nz",        "adventure"),
+        ("florence",     "Florence",          "italy",     "cultural"),
+        ("tuscany",      "Tuscany",           "italy",     "wine region"),
+        ("burgundy",     "Burgundy",          "france",    "wine region"),
+    ]:
+        kg.add_node(city_id, "City", name=name, type=dest_type)
+        kg.add_edge(city_id, "locatedIn", country)
+
+    # --- Cuisines ---
+    for cid, name in [
+        ("french_cuisine",  "French Cuisine"),
+        ("italian_cuisine", "Italian Cuisine"),
+        ("japanese_cuisine","Japanese Cuisine"),
+        ("balinese_cuisine","Balinese Cuisine"),
+        ("greek_cuisine",   "Greek Cuisine"),
+    ]:
+        kg.add_node(cid, "Cuisine", name=name)
+
+    kg.add_edge("paris",        "hasCuisine",  "french_cuisine")
+    kg.add_edge("rome",         "hasCuisine",  "italian_cuisine")
+    kg.add_edge("florence",     "hasCuisine",  "italian_cuisine")
+    kg.add_edge("kyoto",        "hasCuisine",  "japanese_cuisine")
+    kg.add_edge("bali",         "hasCuisine",  "balinese_cuisine")
+    kg.add_edge("santorini",    "hasCuisine",  "greek_cuisine")
+
+    # --- Wines ---
+    for wid, name, wtype, region_id in [
+        ("champagne_brut",   "Champagne Brut",          "sparkling", "burgundy"),
+        ("burgundy_pn",      "Burgundy Pinot Noir",     "red",       "burgundy"),
+        ("chablis",          "Chablis Premier Cru",     "white",     "burgundy"),
+        ("chianti",          "Chianti Classico",        "red",       "tuscany"),
+        ("prosecco",         "Prosecco DOC",            "sparkling", "rome"),
+        ("mendoza_malbec",   "Mendoza Malbec",          "red",       "mendoza"),
+        ("marlborough_sb",   "Marlborough Sauvignon Blanc", "white", "queenstown"),
+        ("rioja",            "Rioja Tempranillo",       "red",       "paris"),
+    ]:
+        kg.add_node(wid, "Wine", name=name, type=wtype)
+        kg.add_edge(wid, "producedIn", region_id)
+        kg.add_edge(region_id, "produces", wid)
+
+    # Wine → Cuisine pairings
+    kg.add_edge("champagne_brut",  "pairsWith", "french_cuisine")
+    kg.add_edge("burgundy_pn",     "pairsWith", "french_cuisine")
+    kg.add_edge("chablis",         "pairsWith", "french_cuisine")
+    kg.add_edge("chablis",         "pairsWith", "japanese_cuisine")
+    kg.add_edge("chianti",         "pairsWith", "italian_cuisine")
+    kg.add_edge("prosecco",        "pairsWith", "italian_cuisine")
+    kg.add_edge("mendoza_malbec",  "pairsWith", "balinese_cuisine")
+    kg.add_edge("marlborough_sb",  "pairsWith", "japanese_cuisine")
+
+    # --- Activities ---
+    for aid, name, atype in [
+        ("wine_tasting",   "Wine Tasting",         "food_drink"),
+        ("cooking_class",  "Cooking Class",         "food_drink"),
+        ("museum_visit",   "Museum Visit",          "cultural"),
+        ("temple_visit",   "Temple Visit",          "cultural"),
+        ("beach_relax",    "Beach Relaxation",      "leisure"),
+        ("surfing",        "Surfing",               "adventure"),
+        ("hiking",         "Hiking",                "adventure"),
+        ("bungee_jumping", "Bungee Jumping",        "adventure"),
+        ("fine_dining",    "Fine Dining",           "food_drink"),
+        ("snorkelling",    "Snorkelling",           "adventure"),
+    ]:
+        kg.add_node(aid, "Activity", name=name, type=atype)
+
+    kg.add_edge("paris",       "offers",  "wine_tasting")
+    kg.add_edge("paris",       "offers",  "museum_visit")
+    kg.add_edge("paris",       "offers",  "fine_dining")
+    kg.add_edge("kyoto",       "offers",  "temple_visit")
+    kg.add_edge("kyoto",       "offers",  "cooking_class")
+    kg.add_edge("bali",        "offers",  "surfing")
+    kg.add_edge("bali",        "offers",  "beach_relax")
+    kg.add_edge("bali",        "offers",  "cooking_class")
+    kg.add_edge("santorini",   "offers",  "beach_relax")
+    kg.add_edge("santorini",   "offers",  "wine_tasting")
+    kg.add_edge("queenstown",  "offers",  "bungee_jumping")
+    kg.add_edge("queenstown",  "offers",  "hiking")
+    kg.add_edge("tuscany",     "offers",  "wine_tasting")
+    kg.add_edge("tuscany",     "offers",  "cooking_class")
+    kg.add_edge("mendoza",     "offers",  "wine_tasting")
+
+    return kg
+
+
+# ===========================================================================
+# SECTION 4 — Demo Queries
+# ===========================================================================
+def run_queries(kg: KnowledgeGraph):
+    print("\n" + "=" * 70)
+    print("KNOWLEDGE GRAPH QUERIES")
+    print("=" * 70)
+
+    # Q1: All wines produced in France
+    print("\nQ1: Which wines are produced in France (via Burgundy/Tuscany)?")
+    for s, e, o in kg.sparql_like(predicate="producedIn", obj={"label": "City"}):
+        city_node = kg.get_node(s.id)
+        country_edges = kg.find_edges(from_id=o.id, relation="locatedIn")
+        countries = [kg.get_node(ed.to_id) for ed in country_edges]
+        for c in countries:
+            if c and c.properties.get("name") == "France":
+                print(f"  {s.properties['name']} produced in {o.properties['name']}, {c.properties['name']}")
+
+    # Q2: Cities in Asia
+    print("\nQ2: Which cities are in Asia?")
+    for s, e, o in kg.sparql_like(predicate="locatedIn"):
+        country = kg.get_node(o.id)
+        if country and country.properties.get("continent") == "Asia":
+            print(f"  {s.properties['name']} is in {country.properties['name']} (Asia)")
+
+    # Q3: Wine pairings for Italian cuisine
+    print("\nQ3: Which wines pair with Italian cuisine?")
+    for s, e, o in kg.sparql_like(predicate="pairsWith", obj="italian_cuisine"):
+        print(f"  {s.properties['name']} ({s.properties['type']}) pairs with Italian Cuisine")
+
+    # Q4: Activities offered in cultural destinations
+    print("\nQ4: Cultural destinations and their activities")
+    cultural_cities = kg.find_nodes(label="City", type="cultural")
+    for city in cultural_cities:
+        acts = kg.get_neighbours(city.id, relation="offers")
+        act_names = [a.properties["name"] for a in acts]
+        print(f"  {city.properties['name']}: {', '.join(act_names) or 'no activities listed'}")
+
+    # Q5: BFS from Paris
+    print("\nQ5: BFS from Paris (depth 2)")
+    traversal = kg.bfs("paris", max_depth=2)
+    for depth, node in traversal:
+        indent = "  " * depth
+        print(f"  {indent}[depth {depth}] {node.label}: {node.properties.get('name', node.id)}")
+
+    # Q6: Path from Kyoto to Japanese Cuisine
+    print("\nQ6: Does a path exist from Kyoto to Japanese Cuisine?")
+    exists = kg.path_exists("kyoto", "japanese_cuisine")
+    print(f"  {'Yes' if exists else 'No'}")
+
+
+# ===========================================================================
+# SECTION 5 — KG Tools Comparison
+# ===========================================================================
+KG_TOOLS = [
+    {
+        "name":        "Neo4j",
+        "type":        "Graph Database (Property Graph)",
+        "language":    "Java",
+        "query_lang":  "Cypher",
+        "open_source": "Community edition (GPLv3)",
+        "strengths":   [
+            "Industry standard for property graphs",
+            "Highly expressive Cypher query language",
+            "Native graph storage (O(1) relationship traversal)",
+            "Excellent visualisation tooling",
+            "Large ecosystem and community",
+        ],
+        "weaknesses":  ["Enterprise features require license", "RDF support via plug-in only"],
+        "best_for":    "Fraud detection, recommendation engines, social networks",
+        "website":     "https://neo4j.com",
+    },
+    {
+        "name":        "Apache Jena",
+        "type":        "RDF Framework (Java library)",
+        "language":    "Java",
+        "query_lang":  "SPARQL 1.1",
+        "open_source": "Yes (Apache 2.0)",
+        "strengths":   [
+            "Full W3C RDF/OWL standards compliance",
+            "Built-in SPARQL endpoint (Fuseki)",
+            "OWL reasoning via Pellet/Hermit integration",
+            "Strong academic and research adoption",
+        ],
+        "weaknesses":  ["Verbose Java API", "Slower than native graph stores at scale"],
+        "best_for":    "Semantic web applications, ontology-based systems, linked data",
+        "website":     "https://jena.apache.org",
+    },
+    {
+        "name":        "Protégé",
+        "type":        "Ontology Editor",
+        "language":    "Java (desktop app)",
+        "query_lang":  "SPARQL, DL queries",
+        "open_source": "Yes (BSD 2-Clause)",
+        "strengths":   [
+            "De facto standard ontology editor",
+            "OWL 2 full support",
+            "Visual class hierarchy and property editors",
+            "Plug-in ecosystem (Pellet reasoner, etc.)",
+        ],
+        "weaknesses":  ["Desktop-only", "Not a database — for ontology design, not storage"],
+        "best_for":    "Designing ontologies and class hierarchies, biomedical KGs",
+        "website":     "https://protege.stanford.edu",
+    },
+    {
+        "name":        "Amazon Neptune",
+        "type":        "Managed Cloud Graph DB",
+        "language":    "Managed service",
+        "query_lang":  "SPARQL, Gremlin, openCypher",
+        "open_source": "No (AWS service)",
+        "strengths":   [
+            "Supports both RDF and Property Graph",
+            "Fully managed, highly available",
+            "Scales to billions of triples",
+            "Integrated with AWS ecosystem",
+        ],
+        "weaknesses":  ["AWS lock-in", "Cost at scale", "No local development"],
+        "best_for":    "Enterprise KGs requiring cloud scalability and high availability",
+        "website":     "https://aws.amazon.com/neptune",
+    },
+    {
+        "name":        "Stardog",
+        "type":        "Enterprise Knowledge Graph Platform",
+        "language":    "Java",
+        "query_lang":  "SPARQL, GraphQL",
+        "open_source": "No (commercial, free tier available)",
+        "strengths":   [
+            "Powerful OWL 2 reasoning engine",
+            "Virtual graph (query external sources as KG)",
+            "Enterprise security and audit logging",
+            "Machine learning integration",
+        ],
+        "weaknesses":  ["Commercial license required for production", "Complex setup"],
+        "best_for":    "Enterprise data integration, regulatory compliance, financial KGs",
+        "website":     "https://www.stardog.com",
+    },
+    {
+        "name":        "Wikidata",
+        "type":        "Open Community Knowledge Base",
+        "language":    "MediaWiki + custom",
+        "query_lang":  "SPARQL (Wikidata Query Service)",
+        "open_source": "Yes (CC0 data, Apache 2.0 software)",
+        "strengths":   [
+            "80+ million entities of public knowledge",
+            "Free public SPARQL endpoint",
+            "Multilingual",
+            "Structured backing for Wikipedia",
+        ],
+        "weaknesses":  ["Limited to general world knowledge", "Inconsistent data quality"],
+        "best_for":    "General-purpose KGs, enriching domain KGs with world knowledge",
+        "website":     "https://www.wikidata.org",
+    },
+    {
+        "name":        "Google Knowledge Graph",
+        "type":        "Commercial Knowledge Graph API",
+        "language":    "REST API",
+        "query_lang":  "REST JSON-LD",
+        "open_source": "No",
+        "strengths":   [
+            "Massive scale (billions of entities)",
+            "Powers Google Search info panels",
+            "Simple REST API for entity lookup",
+        ],
+        "weaknesses":  ["Read-only public API", "Not customisable", "Rate-limited free tier"],
+        "best_for":    "Entity disambiguation, enriching search results",
+        "website":     "https://developers.google.com/knowledge-graph",
+    },
+]
+
+
+def print_tools_comparison():
+    print("\n" + "=" * 70)
+    print("KG TOOLS COMPARISON")
+    print("=" * 70)
+    for tool in KG_TOOLS:
+        print(f"\n  {tool['name']}")
+        print(f"  Type       : {tool['type']}")
+        print(f"  Query Lang : {tool['query_lang']}")
+        print(f"  Open Source: {tool['open_source']}")
+        print(f"  Best For   : {tool['best_for']}")
+        print(f"  Strengths  :")
+        for s in tool["strengths"]:
+            print(f"    + {s}")
+        print(f"  Weaknesses :")
+        for w in tool["weaknesses"]:
+            print(f"    - {w}")
+
+
+# ===========================================================================
+# MAIN
+# ===========================================================================
+if __name__ == "__main__":
+    print(KNOWLEDGE_GRAPH_OVERVIEW)
+
+    print("=" * 70)
+    print("BUILDING TRAVEL DOMAIN KNOWLEDGE GRAPH")
+    print("=" * 70)
+    kg = build_travel_kg()
+    kg.print_stats()
+
+    run_queries(kg)
+    print_tools_comparison()
+
+    # Export to JSON for interoperability
+    export = {
+        "nodes": [
+            {"id": n.id, "label": n.label, **n.properties}
+            for n in kg.nodes.values()
+        ],
+        "edges": [
+            {"from": e.from_id, "relation": e.relation, "to": e.to_id, **e.properties}
+            for e in kg.edges
+        ],
+    }
+    with open("travel_kg_export.json", "w") as f:
+        json.dump(export, f, indent=2)
+    print("\n  KG exported to travel_kg_export.json")
